@@ -98,9 +98,22 @@ func initDNS(
 	}
 
 	conf.Ignored = engine
+	if globalContext.iona == nil {
+		globalContext.iona = newIonaFromEnv(ctx, baseLogger)
+	}
+
+	if s := globalContext.iona; s != nil && s.history != nil {
+		s.loadHistory(ctx, querylogDir)
+		conf.OnEntry = s.addHistory
+	}
+
 	globalContext.queryLog, err = querylog.New(conf)
 	if err != nil {
 		return fmt.Errorf("init querylog: %w", err)
+	}
+
+	if globalContext.iona != nil {
+		globalContext.iona.initialLoad(ctx)
 	}
 
 	globalContext.filters, err = filtering.New(config.Filtering, nil)

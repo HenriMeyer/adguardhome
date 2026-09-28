@@ -1,4 +1,4 @@
-//go:build darwin || freebsd || linux || openbsd
+//go:build (darwin || freebsd || linux || openbsd) && !iona_slim
 
 package dhcpd
 

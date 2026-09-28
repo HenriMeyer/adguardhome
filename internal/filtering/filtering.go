@@ -23,6 +23,7 @@ import (
 	"github.com/AdguardTeam/AdGuardHome/internal/aghhttp"
 	"github.com/AdguardTeam/AdGuardHome/internal/aghos"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering/rulelist"
+	"github.com/AdguardTeam/AdGuardHome/internal/iona"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/hostsfile"
@@ -64,6 +65,9 @@ type Settings struct {
 
 	// ClientSafeSearch is a client configured safe search.
 	ClientSafeSearch SafeSearch
+
+	// IonaPolicy is the client's Iona list policy; see [Config.Iona].
+	IonaPolicy iona.Policy
 }
 
 // Resolver is the interface for net.Resolver to simplify testing.
@@ -95,6 +99,10 @@ type Config struct {
 	// ClientID or client IP address, and applies it to the filtering settings.
 	// It must not be nil.
 	ApplyClientFiltering func(clientID string, cliAddr netip.Addr, setts *Settings) `yaml:"-"`
+
+	// Iona, if not nil, filters queries against the Iona list table after
+	// the urlfilter rules, and contributes the lists' residual rules.
+	Iona *iona.Engine `yaml:"-"`
 
 	// BlockedServices is the configuration of blocked services.
 	// Per-client settings can override this configuration.
@@ -778,6 +786,33 @@ func (d *DNSFilter) initFiltering(ctx context.Context, allowFilters, blockFilter
 	return nil
 }
 
+// initAllowFiltering replaces only the allowlist engine, leaving the blocklist
+// engine and its rule storage in place.
+func (d *DNSFilter) initAllowFiltering(ctx context.Context, allowFilters []Filter) (err error) {
+	rulesStorageAllow, err := newRuleStorage(allowFilters)
+	if err != nil {
+		return err
+	}
+
+	filteringEngineAllow := urlfilter.NewDNSEngine(rulesStorageAllow)
+
+	d.engineLock.Lock()
+	defer d.engineLock.Unlock()
+
+	if d.rulesStorageAllow != nil {
+		if err = d.rulesStorageAllow.Close(); err != nil {
+			d.logger.ErrorContext(ctx, "closing allow rules storage", slogutil.KeyError, err)
+		}
+	}
+
+	d.rulesStorageAllow = rulesStorageAllow
+	d.filteringEngineAllow = filteringEngineAllow
+
+	d.logger.DebugContext(ctx, "initialized allowlist filtering engine")
+
+	return nil
+}
+
 // hostRules is a helper that converts a slice of host rules into a slice of the
 // rules.Rule interface values.
 func hostRulesToRules(netRules []*rules.HostRule) (res []rules.Rule) {
@@ -928,7 +963,7 @@ func (d *DNSFilter) matchHost(
 	if dnsRWRes.Reason != NotFilteredNotFound {
 		return dnsRWRes, nil
 	} else if !matchedEngine {
-		return Result{}, nil
+		return d.matchIona(host, setts), nil
 	}
 
 	if !setts.ProtectionEnabled {

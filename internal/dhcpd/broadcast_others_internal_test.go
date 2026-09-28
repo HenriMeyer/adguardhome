@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build (darwin || linux) && !iona_slim
 
 package dhcpd
 

@@ -105,6 +105,10 @@ func (h *signalHandler) handle(ctx context.Context) {
 		switch sig {
 		case syscall.SIGHUP:
 			h.reloadConfig(ctx)
+		case syscall.SIGUSR1:
+			if s := globalContext.iona; s != nil {
+				s.writeHistory(ctx)
+			}
 		default:
 			h.shutdown(ctx)
 		}
@@ -147,6 +151,10 @@ func (h *signalHandler) reloadConfig(ctx context.Context) {
 		if err != nil {
 			h.logger.ErrorContext(ctx, "refreshing tls manager", slogutil.KeyError, err)
 		}
+	}
+
+	if s := globalContext.iona; s != nil {
+		s.reload(ctx)
 	}
 }
 

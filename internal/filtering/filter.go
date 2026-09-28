@@ -425,9 +425,11 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 	var lists []FilterYAML
 	var toUpd []bool
 	isNetErr := false
+	blockUpdNum := 0
 
 	if block {
-		updNum, lists, toUpd, isNetErr = d.refreshFiltersArray(ctx, &d.conf.Filters, force)
+		blockUpdNum, lists, toUpd, isNetErr = d.refreshFiltersArray(ctx, &d.conf.Filters, force)
+		updNum = blockUpdNum
 	}
 	if allow {
 		updNumAl, listsAl, toUpdAl, isNetErrAl := d.refreshFiltersArray(
@@ -449,7 +451,14 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 		return 0, false
 	}
 
-	d.EnableFilters(false)
+	// Iona: when only allowlists changed, leave the blocklist engine alone.  It
+	// holds nearly all rules, and rebuilding it for an allowlist edit costs
+	// seconds and a temporary second copy of the whole engine in memory.
+	if blockUpdNum == 0 {
+		d.EnableAllowFilters()
+	} else {
+		d.EnableFilters(false)
+	}
 
 	for i := range lists {
 		if toUpd[i] {
@@ -687,7 +696,19 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 		})
 	}
 
-	var allowFilters []Filter
+	filters = append(filters, d.ionaResidualFilters()...)
+
+	err := d.setFilters(ctx, filters, d.allowFiltersLocked(), async)
+	if err != nil {
+		d.logger.ErrorContext(ctx, "enabling filters", slogutil.KeyError, err)
+	}
+
+	d.SetEnabled(d.conf.FilteringEnabled)
+}
+
+// allowFiltersLocked returns the enabled allowlist filters.  d.conf.filtersMu
+// must be locked.
+func (d *DNSFilter) allowFiltersLocked() (allowFilters []Filter) {
 	for _, filter := range d.conf.WhitelistFilters {
 		if !filter.Enabled {
 			continue
@@ -699,12 +720,21 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 		})
 	}
 
-	err := d.setFilters(ctx, filters, allowFilters, async)
-	if err != nil {
-		d.logger.ErrorContext(ctx, "enabling filters", slogutil.KeyError, err)
-	}
+	return allowFilters
+}
 
-	d.SetEnabled(d.conf.FilteringEnabled)
+// EnableAllowFilters rebuilds only the allowlist engine from the enabled
+// allowlist filters and keeps the current blocklist engine.
+func (d *DNSFilter) EnableAllowFilters() {
+	ctx := context.TODO()
+
+	d.conf.filtersMu.RLock()
+	defer d.conf.filtersMu.RUnlock()
+
+	err := d.initAllowFiltering(ctx, d.allowFiltersLocked())
+	if err != nil {
+		d.logger.ErrorContext(ctx, "enabling allowlist filters", slogutil.KeyError, err)
+	}
 }
 
 // ApplyAdditionalFiltering enhances the provided filtering settings with
@@ -714,6 +744,7 @@ func (d *DNSFilter) ApplyAdditionalFiltering(cliAddr netip.Addr, clientID string
 
 	d.ApplyBlockedServices(setts)
 	d.applyClientFiltering(clientID, cliAddr, setts)
+	d.applyIona(cliAddr, setts)
 	if setts.BlockedServices != nil {
 		// TODO(e.burkov):  Get rid of this crutch.
 		setts.ServicesRules = nil

@@ -79,6 +79,29 @@ type Config struct {
 	// AnonymizeClientIP tells if the query log should anonymize clients' IP
 	// addresses.
 	AnonymizeClientIP bool
+
+	// OnEntry, if not nil, is called for every entry added to the log, before
+	// it is buffered.  It must not block.  Iona uses it to count its DNS
+	// history in the daemon instead of re-reading the log files.
+	OnEntry func(e *HistoryEntry) `yaml:"-"`
+}
+
+// HistoryEntry is the part of a log entry passed to [Config.OnEntry].
+type HistoryEntry struct {
+	// Time is the entry's time as written to the log.
+	Time time.Time
+
+	// Host is the question host as written to the log.
+	Host string
+
+	// ClientID is the client ID, if any.
+	ClientID string
+
+	// ClientIP is the client address.
+	ClientIP net.IP
+
+	// Result is the filtering result.
+	Result *filtering.Result
 }
 
 // AddParams is the parameters for adding an entry.

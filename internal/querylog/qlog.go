@@ -219,12 +219,14 @@ func newLogEntry(ctx context.Context, logger *slog.Logger, params *AddParams) (e
 func (l *queryLog) Add(params *AddParams) {
 	var isEnabled, fileIsEnabled bool
 	var memSize uint
+	var onEntry func(e *HistoryEntry)
 	func() {
 		l.confMu.RLock()
 		defer l.confMu.RUnlock()
 
 		isEnabled, fileIsEnabled = l.conf.Enabled, l.conf.FileEnabled
 		memSize = l.conf.MemSize
+		onEntry = l.conf.OnEntry
 	}()
 
 	if !isEnabled {
@@ -246,6 +248,15 @@ func (l *queryLog) Add(params *AddParams) {
 	}
 
 	entry := newLogEntry(ctx, l.logger, params)
+	if onEntry != nil {
+		onEntry(&HistoryEntry{
+			Time:     entry.Time,
+			Host:     entry.QHost,
+			ClientID: entry.ClientID,
+			ClientIP: entry.IP,
+			Result:   &entry.Result,
+		})
+	}
 
 	l.bufferLock.Lock()
 	defer l.bufferLock.Unlock()

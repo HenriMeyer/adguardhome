@@ -1,0 +1,134 @@
+[
+  {
+    "input": "example.com",
+    "norm": "example.com",
+    "hash": "9591d6421994d599",
+    "ok": true
+  },
+  {
+    "input": "EXAMPLE.COM",
+    "norm": "example.com",
+    "hash": "9591d6421994d599",
+    "ok": true
+  },
+  {
+    "input": "example.com.",
+    "norm": "example.com",
+    "hash": "9591d6421994d599",
+    "ok": true
+  },
+  {
+    "input": "sub.example.com",
+    "norm": "sub.example.com",
+    "hash": "a6329a0833698cb7",
+    "ok": true
+  },
+  {
+    "input": "a",
+    "norm": "a",
+    "hash": "82a2a958a9bece5b",
+    "ok": true
+  },
+  {
+    "input": "com",
+    "norm": "com",
+    "hash": "3bde02c8bb980b95",
+    "ok": true
+  },
+  {
+    "input": "xn--mnchen-3ya.de",
+    "norm": "xn--mnchen-3ya.de",
+    "hash": "5f7bd89eb4186b78",
+    "ok": true
+  },
+  {
+    "input": "münchen.de",
+    "norm": "xn--mnchen-3ya.de",
+    "hash": "5f7bd89eb4186b78",
+    "ok": true
+  },
+  {
+    "input": "MÜNCHEN.de",
+    "norm": "xn--mnchen-3ya.de",
+    "hash": "5f7bd89eb4186b78",
+    "ok": true
+  },
+  {
+    "input": "_dmarc.example.com",
+    "norm": "_dmarc.example.com",
+    "hash": "b717b7a2c53d92d1",
+    "ok": true
+  },
+  {
+    "input": "ads-1.tracker.example.co.uk",
+    "norm": "ads-1.tracker.example.co.uk",
+    "hash": "111eb55fa0bdad57",
+    "ok": true
+  },
+  {
+    "input": "",
+    "norm": "",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": ".",
+    "norm": "",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": "a..b",
+    "norm": "a..b",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": ".example.com",
+    "norm": ".example.com",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": "exa mple.com",
+    "norm": "exa mple.com",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": "exa*mple.com",
+    "norm": "exa*mple.com",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+    "norm": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+    "hash": "1836a4525513e8b5",
+    "ok": true
+  },
+  {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+    "norm": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+    "hash": "",
+    "ok": false
+  },
+  {
+    "input": "1.2.3.4",
+    "norm": "1.2.3.4",
+    "hash": "9e3c30cea5f1bc38",
+    "ok": true
+  },
+  {
+    "input": "例え.jp",
+    "norm": "xn--r8jz45g.jp",
+    "hash": "55df643d4129835e",
+    "ok": true
+  },
+  {
+    "input": "straße.de",
+    "norm": "xn--strae-oqa.de",
+    "hash": "a6d9d8e323d0c72a",
+    "ok": true
+  }
+]

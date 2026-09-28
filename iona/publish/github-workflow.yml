@@ -1,0 +1,31 @@
+# Template for the scheduled list-table build (KAN-119). Not active here: copy it
+# to .github/workflows/ in the repository that should run it and set the secrets
+# SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and IONA_LISTS_KEY.
+name: Iona list table
+
+on:
+  schedule:
+    # hagezi-sync runs before this; lists change at most daily.
+    - cron: '30 4 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build iona-listtable
+        run: go build -o iona-listtable ./iona/cmd/iona-listtable
+      - name: Test table code
+        run: go test ./internal/iona/...
+      - name: Build, sign, and upload
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          IONA_LISTS_KEY: ${{ secrets.IONA_LISTS_KEY }}
+          IONA_LISTTABLE: ./iona-listtable
+        run: sh iona/publish/publish-lists.sh

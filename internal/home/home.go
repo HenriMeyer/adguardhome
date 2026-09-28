@@ -63,6 +63,9 @@ type homeContext struct {
 
 	filters *filtering.DNSFilter // DNS filtering module
 
+	// iona is the Iona router engine; nil unless AGH_IONA_DIR is set.
+	iona *ionaState
+
 	controlLock sync.Mutex
 }
 
@@ -121,7 +124,9 @@ func Main(clientBuildFS fs.FS) {
 	done := make(chan struct{})
 
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	// Iona: SIGUSR1 writes the DNS history files now; without registering
+	// it, the default action would kill the process.
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGUSR1)
 
 	pidFilePath := setPIDFilePath(opts)
 
@@ -905,6 +910,12 @@ func runDNSServer(
 		if startErr != nil {
 			closeDNSServer(ctx)
 			fatalOnError(startErr)
+		}
+
+		if s := globalContext.iona; s != nil {
+			// Now with the DNS settings, which didn't exist at the first write.
+			s.engine.Applied(ctx)
+			go s.runHistory(ctx)
 		}
 	}()
 

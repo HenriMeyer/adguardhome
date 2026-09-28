@@ -132,8 +132,8 @@ type Persistent struct {
 }
 
 // validate returns an error if persistent client information contains errors.
-// allTags must be sorted.
-func (c *Persistent) validate(ctx context.Context, l *slog.Logger, allTags []string) (err error) {
+// Tags are checked by [validateTag], not against the list of known tags.
+func (c *Persistent) validate(ctx context.Context, l *slog.Logger, _ []string) (err error) {
 	switch {
 	case c.Name == "":
 		return errors.Error("empty name")
@@ -156,9 +156,10 @@ func (c *Persistent) validate(ctx context.Context, l *slog.Logger, allTags []str
 	}
 
 	for _, t := range c.Tags {
-		_, ok := slices.BinarySearch(allTags, t)
-		if !ok {
-			return fmt.Errorf("invalid tag: %q", t)
+		err = validateTag(t)
+		if err != nil {
+			// Don't wrap the error, because it's informative enough as is.
+			return err
 		}
 	}
 

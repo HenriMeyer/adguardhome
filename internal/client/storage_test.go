@@ -664,7 +664,7 @@ func TestStorage_Add(t *testing.T) {
 		existingClientID = "existing_client_id"
 
 		allowedTag    = "user_admin"
-		notAllowedTag = "not_allowed_tag"
+		notAllowedTag = "Not-Allowed"
 	)
 
 	var (
@@ -758,7 +758,7 @@ func TestStorage_Add(t *testing.T) {
 			IPs:  []netip.Addr{netip.MustParseAddr("4.4.4.4")},
 			UID:  client.MustNewUID(),
 		},
-		wantErrMsg: `adding client: invalid tag: "not_allowed_tag"`,
+		wantErrMsg: `adding client: invalid tag: "Not-Allowed"`,
 	}, {
 		name: "allowed_tag",
 		cli: &client.Persistent{

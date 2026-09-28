@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !iona_slim
 
 package dhcpd
 
