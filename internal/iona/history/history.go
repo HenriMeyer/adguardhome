@@ -15,6 +15,7 @@ package history
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +48,11 @@ type Entry struct {
 
 	// Blocked is true for filtered answers (IsFiltered or Reason 3..8).
 	Blocked bool
+
+	// ListID is the filter list ID of the rule that blocked the query, 0 if
+	// none.  [Config.ListName] turns it into a list name when the files are
+	// written.
+	ListID int64
 }
 
 // Config is the configuration for [New].
@@ -73,6 +79,10 @@ type Config struct {
 
 	// RouterIP is the router's LAN address; its queries count as lb:router.
 	RouterIP string
+
+	// ListName returns the name of the list behind a filter list ID, or "" if
+	// the ID is no list's.  If nil, blocks aren't broken down by list.
+	ListName func(id int64) (name string)
 }
 
 // keep is how long entries are kept: two log generations of 24 hours plus
@@ -127,12 +137,12 @@ func (h *History) Add(e Entry) {
 }
 
 // EntryFromLog converts a query log entry's fields.  wall is the log
-// timestamp in the location it is written in.
-func EntryFromLog(wall time.Time, host, ip, cid string, isFiltered bool, reason int) (e Entry) {
+// timestamp in the location it is written in; listID is the filter list ID of
+// the entry's first rule, 0 if it has none.
+func EntryFromLog(wall time.Time, host, ip, cid string, isFiltered bool, reason int, listID int64) (e Entry) {
 	w := wall.Format("2006-01-02T15:04:05")
 	t, _ := time.Parse("2006-01-02T15:04:05", w)
-
-	return Entry{
+	e = Entry{
 		Host:    strings.ToLower(host),
 		IP:      ip,
 		CID:     cid,
@@ -140,6 +150,12 @@ func EntryFromLog(wall time.Time, host, ip, cid string, isFiltered bool, reason 
 		Epoch:   t.Unix(),
 		Blocked: isFiltered || (reason >= 3 && reason <= 8),
 	}
+
+	if e.Blocked {
+		e.ListID = listID
+	}
+
+	return e
 }
 
 // logLine is the part of a query log line the history reads.
@@ -149,6 +165,9 @@ type logLine struct {
 	IP     string `json:"IP"`
 	CID    string `json:"CID"`
 	Result struct {
+		Rules []struct {
+			FilterListID int64 `json:"FilterListID"`
+		} `json:"Rules"`
 		IsFiltered bool `json:"IsFiltered"`
 		Reason     int  `json:"Reason"`
 	} `json:"Result"`
@@ -204,14 +223,19 @@ func readLog(path string) (es []Entry, err error) {
 			continue
 		}
 
-		es = append(es, Entry{
+		e := Entry{
 			Host:    strings.ToLower(l.QH),
 			IP:      l.IP,
 			CID:     l.CID,
 			Day:     l.T[:10],
 			Epoch:   t.Unix(),
 			Blocked: l.Result.IsFiltered || (l.Result.Reason >= 3 && l.Result.Reason <= 8),
-		})
+		}
+		if e.Blocked && len(l.Result.Rules) > 0 {
+			e.ListID = l.Result.Rules[0].FilterListID
+		}
+
+		es = append(es, e)
 	}
 
 	return es, s.Err()
@@ -336,6 +360,24 @@ func (h *History) clientKey(r *registry, e *Entry) (ck string) {
 	}
 
 	return e.IP
+}
+
+// otherList is the list name under which blocks count that no list of the
+// table caused.
+const otherList = "_other"
+
+// listOf returns the name of the list that blocked e, otherList if no list of
+// the table did, or "" if e isn't blocked or blocks aren't broken down.
+func (h *History) listOf(e *Entry) (name string) {
+	if !e.Blocked || h.conf.ListName == nil {
+		return ""
+	}
+
+	if e.ListID != 0 {
+		name = h.conf.ListName(e.ListID)
+	}
+
+	return cmp.Or(name, otherList)
 }
 
 // isRouterIP mirrors the scripts' is_router_ip.

@@ -3,6 +3,7 @@ package history
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,6 +27,12 @@ const (
 	topDomainsFinal7d = 50
 	topClientsFinal7d = 20
 	gcKeepDays        = 30
+
+	// Blocked domains kept per list: in the 24-hour file, per day, and in
+	// the 7-day file.
+	topPerList24h    = 10
+	topPerListPerDay = 20
+	topPerList7d     = 10
 
 	file24h        = "router-dns-24h-history.json"
 	fileBlockedBy  = "router-dns-blocked-by-client.json"
@@ -99,6 +106,33 @@ func allowedOnly(tot, blk map[string]int) (m map[string]int) {
 	return m
 }
 
+// addListDomain adds n blocks of domain under list in m.
+func addListDomain(m map[string]map[string]int, list, domain string, n int) {
+	d := m[list]
+	if d == nil {
+		d = map[string]int{}
+		m[list] = d
+	}
+
+	d[domain] += n
+}
+
+// listDomainsJSON renders the blocked domains per list as the body of
+// {"<list>":[{"<domain>":count},…],…}: lists by name, the n most blocked
+// domains of each.
+func listDomainsJSON(m map[string]map[string]int, n int) (s string) {
+	var sb strings.Builder
+	for i, l := range slices.Sorted(maps.Keys(m)) {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+
+		fmt.Fprintf(&sb, `"%s":[%s]`, scriptEscape(l), topJSON(topN(m[l], n)))
+	}
+
+	return sb.String()
+}
+
 // ints renders integers as a comma-separated list.
 func ints(vs []int) (s string) {
 	parts := make([]string, len(vs))
@@ -128,6 +162,7 @@ func (h *History) Write24h() (err error) {
 	dcount, bdcount := map[string]int{}, map[string]int{}
 	ccount, bccount := map[string]int{}, map[string]int{}
 	cbd := map[string]map[string]*clientDomain{}
+	lcount, ldom := map[string]int{}, map[string]map[string]int{}
 	for i := range es {
 		e := &es[i]
 		if e.Epoch < winStart || e.Epoch >= winEnd {
@@ -144,6 +179,13 @@ func (h *History) Write24h() (err error) {
 			dcount[e.Host]++
 			if e.Blocked {
 				bdcount[e.Host]++
+			}
+		}
+
+		if l := h.listOf(e); l != "" {
+			lcount[l]++
+			if e.Host != "" {
+				addListDomain(ldom, l, e.Host, 1)
 			}
 		}
 
@@ -191,6 +233,11 @@ func (h *History) Write24h() (err error) {
 	fmt.Fprintf(&sb, `,"top_blocked_domains":[%s]`, topJSON(topN(bdcount, topDomains24h)))
 	fmt.Fprintf(&sb, `,"top_clients":[%s]`, topJSON(topN(ccount, topClients24h)))
 	fmt.Fprintf(&sb, `,"_top_clients_blocked":[%s]`, topJSON(topN(bccount, topClients24h)))
+	if h.conf.ListName != nil {
+		fmt.Fprintf(&sb, `,"_blocked_lists":[%s],"_blocked_list_domains":{%s}`,
+			topJSON(topN(lcount, len(lcount))), listDomainsJSON(ldom, topPerList24h))
+	}
+
 	fmt.Fprintf(&sb, `,"_top_client_names":{%s}`, labelsJSON(r))
 	fmt.Fprintf(&sb, `,"_bucket_ms":%d,"_bucket_count":%d,"_window_end":%d`, bucketSec*1000, bucketCount, winEnd)
 	fmt.Fprintf(&sb, `,"_unique_domains":%d,"_generated_at":%d}`, len(dcount), now)
@@ -266,6 +313,11 @@ type dayAgg struct {
 	dcount, bdcount map[string]int
 	ccount, bccount map[string]int
 	total, blocked  int
+
+	// lcount and ldom are the blocks and blocked domains per list; nil if
+	// blocks aren't broken down by list.
+	lcount map[string]int
+	ldom   map[string]map[string]int
 }
 
 // Write7d updates the per-day files and writes the 7-day history.
@@ -287,6 +339,10 @@ func (h *History) Write7d() (err error) {
 				dcount: map[string]int{}, bdcount: map[string]int{},
 				ccount: map[string]int{}, bccount: map[string]int{},
 			}
+			if h.conf.ListName != nil {
+				d.lcount, d.ldom = map[string]int{}, map[string]map[string]int{}
+			}
+
 			days[e.Day] = d
 		}
 
@@ -306,6 +362,13 @@ func (h *History) Write7d() (err error) {
 			d.ccount[ck]++
 			if e.Blocked {
 				d.bccount[ck]++
+			}
+		}
+
+		if l := h.listOf(e); l != "" {
+			d.lcount[l]++
+			if e.Host != "" {
+				addListDomain(d.ldom, l, e.Host, 1)
 			}
 		}
 	}
@@ -332,13 +395,23 @@ func writeDay(dir, day string, d *dayAgg) (err error) {
 		return nil
 	}
 
-	mini := fmt.Sprintf(`{"day":"%s","total":%d,"blocked":%d,"top_domains":[%s],"top_blocked":[%s],"top_clients":[%s],"top_clients_blocked":[%s]}`,
+	mini := fmt.Sprintf(`{"day":"%s","total":%d,"blocked":%d,"top_domains":[%s],"top_blocked":[%s],"top_clients":[%s],"top_clients_blocked":[%s]`,
 		day, d.total, d.blocked,
 		topJSON(topN(allowedOnly(d.dcount, d.bdcount), topDomainsPerDay)),
 		topJSON(topN(d.bdcount, topDomainsPerDay)),
 		topJSON(topN(d.ccount, topClientsPerDay)),
 		topJSON(topN(d.bccount, topClientsPerDay)),
 	)
+	// Appended after the scripts' fields, so everything before stays as the
+	// scripts wrote it: "blocked_lists", then "bl:<list>" per list.
+	if d.lcount != nil {
+		mini += fmt.Sprintf(`,"blocked_lists":[%s]`, topJSON(topN(d.lcount, len(d.lcount))))
+		for _, l := range slices.Sorted(maps.Keys(d.ldom)) {
+			mini += fmt.Sprintf(`,"bl:%s":[%s]`, scriptEscape(l), topJSON(topN(d.ldom[l], topPerListPerDay)))
+		}
+	}
+
+	mini += "}"
 
 	err = writeAtomic(filepath.Join(dir, day+".json"), []byte(mini))
 	if err != nil {
@@ -369,6 +442,11 @@ type miniDay struct {
 	tops  map[string][]counted
 	total int
 	block int
+
+	// lists are the blocks per list, listDomains the blocked domains per
+	// list; empty for days the scripts wrote.
+	lists       []counted
+	listDomains map[string][]counted
 }
 
 // readMini parses a day file written by writeDay or the script.
@@ -384,6 +462,12 @@ func readMini(path string) (m *miniDay, ok bool) {
 	m.block = firstInt(s, `"blocked":`)
 	for _, f := range []string{"top_domains", "top_blocked", "top_clients", "top_clients_blocked"} {
 		m.tops[f] = parseTopArray(s, f)
+	}
+
+	m.lists = parseTopArray(s, "blocked_lists")
+	m.listDomains = map[string][]counted{}
+	for _, l := range m.lists {
+		m.listDomains[l.name] = parseTopArray(s, "bl:"+l.name)
 	}
 
 	return m, true
@@ -466,6 +550,7 @@ func (h *History) writeMerged7d(r *registry) (err error) {
 		"top_domains": {}, "top_blocked": {}, "top_clients": {}, "top_clients_blocked": {},
 	}
 	unique := map[string]struct{}{}
+	lsum, ldsum := map[string]int{}, map[string]map[string]int{}
 	for _, d := range dayList {
 		t, b := 0, 0
 		if m, ok := readMini(filepath.Join(dir, d+".json")); ok {
@@ -473,6 +558,16 @@ func (h *History) writeMerged7d(r *registry) (err error) {
 			for f, cs := range m.tops {
 				for _, c := range cs {
 					combined[f][c.name] += c.count
+				}
+			}
+
+			for _, c := range m.lists {
+				lsum[c.name] += c.count
+			}
+
+			for l, cs := range m.listDomains {
+				for _, c := range cs {
+					addListDomain(ldsum, l, c.name, c.count)
 				}
 			}
 		}
@@ -503,6 +598,11 @@ func (h *History) writeMerged7d(r *registry) (err error) {
 	fmt.Fprintf(&sb, `,"top_blocked_domains":[%s]`, topJSON(topN(combined["top_blocked"], topDomainsFinal7d)))
 	fmt.Fprintf(&sb, `,"top_clients":[%s]`, topJSON(topN(combined["top_clients"], topClientsFinal7d)))
 	fmt.Fprintf(&sb, `,"_top_clients_blocked":[%s]`, topJSON(topN(combined["top_clients_blocked"], topClientsFinal7d)))
+	if h.conf.ListName != nil {
+		fmt.Fprintf(&sb, `,"_blocked_lists":[%s],"_blocked_list_domains":{%s}`,
+			topJSON(topN(lsum, len(lsum))), listDomainsJSON(ldsum, topPerList7d))
+	}
+
 	fmt.Fprintf(&sb, `,"_top_client_names":{%s}`, labelsJSON(r))
 	fmt.Fprintf(&sb, `,"_days":[%s],"_unique_domains":%d,"_generated_at":%d}`,
 		strings.Join(quoted, ","), len(unique), now.Unix())

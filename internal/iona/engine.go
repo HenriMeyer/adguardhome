@@ -216,6 +216,24 @@ func (e *Engine) Match(host string, p Policy) (m Match, ok bool) {
 	}, true
 }
 
+// ListName returns the name of the list behind a filter list ID reported for a
+// table or residual match, or "" if id is none of them.
+func (e *Engine) ListName(id int64) (name string) {
+	bit := id - ListIDBase
+	if bit < 0 {
+		return ""
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.table == nil || bit >= int64(len(e.table.Lists())) {
+		return ""
+	}
+
+	return e.table.Lists()[bit].Name
+}
+
 // ResidualRules returns the residual rules of the enabled lists.
 func (e *Engine) ResidualRules() (rs []Residual) {
 	e.mu.RLock()

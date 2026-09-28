@@ -125,6 +125,7 @@ func newIonaFromEnv(ctx context.Context, baseLogger *slog.Logger) (s *ionaState)
 			OutDir:      hdir,
 			RegistryDir: hdir,
 			RouterIP:    os.Getenv(ionaRouterIPEnv),
+			ListName:    s.engine.ListName,
 		})
 	}
 
@@ -151,8 +152,13 @@ func (s *ionaState) addHistory(e *querylog.HistoryEntry) {
 		ip = e.ClientIP.String()
 	}
 
+	var listID int64
+	if len(e.Result.Rules) > 0 {
+		listID = int64(e.Result.Rules[0].FilterListID)
+	}
+
 	s.history.Add(history.EntryFromLog(
-		e.Time, e.Host, ip, e.ClientID, e.Result.IsFiltered, int(e.Result.Reason),
+		e.Time, e.Host, ip, e.ClientID, e.Result.IsFiltered, int(e.Result.Reason), listID,
 	))
 }
 

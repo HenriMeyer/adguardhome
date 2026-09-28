@@ -12,6 +12,12 @@
 # to tables/v1/lists.tbz. v1 is the table format version: a new format goes to a new
 # path while older firmware keeps pulling v1.
 #
+# The order of the lists in the table is the attribution order: a domain in several
+# lists is reported under the first of them, and the web UI's statistics count the
+# block there. So the specific categories come first and the broad HaGeZi tiers last
+# (threats, youth protection, telemetry, the rest, the tiers — by lists-meta.json);
+# a tracker in both Samsung-Telemetrie and Pro++ counts as telemetry.
+#
 # Environment:
 #   SUPABASE_URL                 https://<ref>.supabase.co (or a test mirror)
 #   SUPABASE_SERVICE_ROLE_KEY    for the upload (never on a router)
@@ -41,6 +47,22 @@ for p in $paths; do
 	n=$((n + 1))
 done
 echo "downloaded $n lists"
+curl -fsS -o "$WORK/lists-meta.json" "$SUPABASE_URL/storage/v1/object/public/$BUCKET/hagezi/lists-meta.json" ||
+	echo "no lists-meta.json — lists stay in name order" >&2
+
+order="$(python3 - "$WORK/lists-meta.json" "$WORK"/lists/*.txt <<'PY'
+import json, os, sys
+prio = {"bedrohungsschutz": 0, "jugendschutz": 1, "telemetrie": 2, "schutzstufe": 4}
+try:
+    meta = {m["name"]: m for m in json.load(open(sys.argv[1]))}
+except (OSError, ValueError, KeyError, TypeError):
+    meta = {}
+def key(path):
+    m = meta.get(os.path.basename(path), {})
+    return (prio.get(m.get("group"), 3), m.get("order") or 0, os.path.basename(path))
+print(" ".join(sorted(sys.argv[2:], key=key)))
+PY
+)"
 
 # The public key belonging to the private one, for verifying our own output.
 python3 - "$WORK/key" "$WORK/pub" <<'PY'
@@ -50,7 +72,8 @@ open(sys.argv[2], "w").write(base64.b64encode(priv[32:]).decode() + "\n")
 PY
 
 seq="$(date +%s)"
-"$IONA_LISTTABLE" build -key "$WORK/key" -seq "$seq" -o "$WORK/lists.tbl" "$WORK"/lists/*.txt
+# shellcheck disable=SC2086
+"$IONA_LISTTABLE" build -key "$WORK/key" -seq "$seq" -o "$WORK/lists.tbl" $order
 "$IONA_LISTTABLE" pack -pub "$WORK/pub" "$WORK/lists.tbl" "$WORK/lists.tbz"
 "$IONA_LISTTABLE" unpack "$WORK/lists.tbz" "$WORK/check.tbl"
 cmp "$WORK/lists.tbl" "$WORK/check.tbl"
