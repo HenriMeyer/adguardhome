@@ -15,6 +15,7 @@ import (
 // compare Generation before and after a reload to know when it is applied.
 type Status struct {
 	Table           *StatusTable        `json:"table"`
+	Pause           *StatusPause        `json:"pause"`
 	Devices         map[string][]string `json:"devices"`
 	Extra           map[string]any      `json:"extra,omitempty"`
 	Selected        []string            `json:"selected"`
@@ -67,6 +68,7 @@ func (e *Engine) Status() (s *Status) {
 			Size:     ti.Size,
 			Loaded:   ti.Loaded,
 		},
+		Pause:           e.statusPauseLocked(),
 		Devices:         map[string][]string{},
 		Selected:        nonNil(e.st.Selected),
 		UnknownSelected: nonNil(e.st.UnknownSelected),

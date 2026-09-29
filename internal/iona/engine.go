@@ -11,6 +11,8 @@
 //	selected         enabled list names, one per line; empty or missing
 //	                 means every list of the table
 //	devices          per-device exclusions: "<mac> <list>[,<list>…]" per line
+//	pause            list pause for all but the protected devices (see
+//	                 [PauseFile])
 //
 // See the README in iona/ at the repository root for the router side.
 package iona
@@ -81,8 +83,12 @@ type Engine struct {
 	st       state
 	devices  map[string]*device
 	residual []Residual
+	pause    pauseState
 	extra    statusExtra
 	applied  uint64
+
+	// now returns the current time; tests replace it.
+	now func() time.Time
 
 	// started tells a restarted daemon apart in the status file, since the
 	// PID is always 1 inside procd's jail.
@@ -129,6 +135,7 @@ func New(c *Config) (e *Engine) {
 		neigh:   newNeighborCache(nf),
 		devices: map[string]*device{},
 		started: time.Now(),
+		now:     time.Now,
 	}
 }
 
@@ -151,10 +158,10 @@ type Policy struct {
 // ClientPolicy returns the policy for a query from addr.
 func (e *Engine) ClientPolicy(addr netip.Addr) (p Policy) {
 	e.mu.RLock()
-	hasDevices := len(e.devices) > 0
+	needMAC := len(e.devices) > 0 || e.pauseActiveLocked()
 	e.mu.RUnlock()
 
-	if hasDevices && addr.IsValid() {
+	if needMAC && addr.IsValid() {
 		p.mac, _ = e.neigh.MAC(addr.Unmap())
 	}
 
@@ -170,6 +177,12 @@ func (e *Engine) ClientPolicy(addr netip.Addr) (p Policy) {
 // e.mu must be held.
 func (e *Engine) fillPolicyLocked(p *Policy) {
 	p.gen = e.st.Generation
+	if e.pausedLocked(p.mac) {
+		p.mask, p.Tags = 0, e.pause.tags
+
+		return
+	}
+
 	p.mask = e.st.EnabledMask
 	p.Tags = nil
 	if d, ok := e.devices[p.mac]; ok && p.mac != "" {
@@ -271,6 +284,11 @@ func (e *Engine) Reload(ctx context.Context) (changed bool, err error) {
 		addErr("reading %s: %s", DevicesFile, err)
 	}
 
+	pause, err := readPause(e.conf.Dir)
+	if err != nil {
+		addErr("reading %s: %s", PauseFile, err)
+	}
+
 	e.mu.RLock()
 	cur, curSource := e.table, e.st.TableSource
 	e.mu.RUnlock()
@@ -278,7 +296,7 @@ func (e *Engine) Reload(ctx context.Context) (changed bool, err error) {
 	next, source, tableErrs := e.loadTable(ctx, keys, cur, curSource)
 	errs = append(errs, tableErrs...)
 
-	return e.apply(ctx, next, source, selected, profiles, errs), nil
+	return e.apply(ctx, next, source, selected, profiles, pause, errs), nil
 }
 
 // apply installs the new state and writes the status file.
@@ -288,6 +306,7 @@ func (e *Engine) apply(
 	source string,
 	selected []string,
 	profiles map[string][]string,
+	pause *pauseSpec,
 	errs []string,
 ) (changed bool) {
 	st := state{Selected: selected, TableSource: source, Errors: errs}
@@ -312,6 +331,7 @@ func (e *Engine) apply(
 			return a.ID == b.ID && string(a.Text) == string(b.Text)
 		})
 	st.Generation = e.st.Generation + 1
+	e.pause = e.nextPause(pause, next, st.EnabledMask)
 	e.table, e.st, e.devices, e.residual = next, st, devices, residual
 	e.mu.Unlock()
 
