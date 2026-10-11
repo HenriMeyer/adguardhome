@@ -104,6 +104,7 @@ type state struct {
 	TableSource     string   `json:"table_source"`
 	Generation      uint64   `json:"generation"`
 	EnabledMask     uint64   `json:"-"`
+	EnabledEntries  int      `json:"-"`
 }
 
 // device is the resolved exclusion profile of one MAC address.
@@ -314,6 +315,7 @@ func (e *Engine) apply(
 	var residual []Residual
 	if next != nil {
 		st.EnabledMask, st.UnknownSelected = enabledMask(next, selected)
+		st.EnabledEntries = next.EntriesFor(st.EnabledMask)
 		for _, l := range next.Lists() {
 			if st.EnabledMask&(1<<uint(l.Bit)) != 0 {
 				st.Enabled = append(st.Enabled, l.Name)

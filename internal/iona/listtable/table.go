@@ -9,6 +9,7 @@ import (
 	"math/bits"
 	"os"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -30,6 +31,11 @@ type Table struct {
 
 	created  time.Time
 	sequence uint64
+
+	// comboCount is the number of entries per combination, counted on the
+	// first [Table.EntriesFor].
+	comboCount []int
+	countOnce  sync.Once
 }
 
 // ErrSignature is returned when no trusted key verifies a table.
@@ -348,6 +354,29 @@ func (t *Table) AllMask() (mask uint64) {
 
 // Entries returns the number of domains in the table.
 func (t *Table) Entries() (n int) { return len(t.hashes) }
+
+// EntriesFor returns the number of domains at least one list of mask contains,
+// each domain counted once however many of the lists contain it.  The first
+// call reads the combination of every entry, 1 or 2 bytes each.
+func (t *Table) EntriesFor(mask uint64) (n int) {
+	t.countOnce.Do(func() {
+		t.comboCount = make([]int, len(t.combos))
+		for _, c := range t.cats8 {
+			t.comboCount[c]++
+		}
+		for _, c := range t.cats16 {
+			t.comboCount[c]++
+		}
+	})
+
+	for c, m := range t.combos {
+		if m&mask != 0 {
+			n += t.comboCount[c]
+		}
+	}
+
+	return n
+}
 
 // Combos returns the number of list combinations.
 func (t *Table) Combos() (n int) { return len(t.combos) }

@@ -167,6 +167,12 @@ func TestBuild_parseAndMatch(t *testing.T) {
 
 	assert.Equal(t, a|b, tbl.Lookup("BOTH.example."))
 
+	// a: ads, tracker, both, upper, münchen; b: both, b-only, deep.sub.b.
+	assert.Equal(t, 5, tbl.EntriesFor(a))
+	assert.Equal(t, 3, tbl.EntriesFor(b))
+	assert.Equal(t, 7, tbl.EntriesFor(a|b))
+	assert.Equal(t, 0, tbl.EntriesFor(0))
+
 	mask, unknown := tbl.Mask([]string{"b.txt", "nope.txt"})
 	assert.Equal(t, b, mask)
 	assert.Equal(t, []string{"nope.txt"}, unknown)
@@ -304,6 +310,9 @@ func TestBuild_wideCategories(t *testing.T) {
 	for combo := 1; combo < 1<<nLists; combo++ {
 		assert.Equal(t, uint64(combo), tbl.Lookup(fmt.Sprintf("c%d.example", combo)))
 	}
+	// One domain per combination: half of them contain list 0.
+	assert.Equal(t, 1<<(nLists-1), tbl.EntriesFor(1))
+	assert.Equal(t, 1<<nLists-1, tbl.EntriesFor(tbl.AllMask()))
 
 	// And through the transport form.
 	pub, _ := testKey(t)

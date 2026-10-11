@@ -36,8 +36,10 @@ type StatusTable struct {
 	Created  int64    `json:"created"`
 	Sequence uint64   `json:"sequence"`
 	Entries  int      `json:"entries"`
-	Size     int      `json:"size"`
-	Loaded   bool     `json:"loaded"`
+	// EnabledEntries is the number of domains the enabled lists block.
+	EnabledEntries int  `json:"enabled_entries"`
+	Size           int  `json:"size"`
+	Loaded         bool `json:"loaded"`
 }
 
 // statusExtra is set by the embedding code to add its own applied state.
@@ -83,6 +85,7 @@ func (e *Engine) Status() (s *Status) {
 
 	if ti.Loaded {
 		s.Table.Created = ti.Created.Unix()
+		s.Table.EnabledEntries = e.st.EnabledEntries
 	}
 
 	macs := make([]string, 0, len(e.devices))
