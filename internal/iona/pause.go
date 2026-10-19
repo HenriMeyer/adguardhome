@@ -26,7 +26,7 @@ import (
 const PauseFile = "pause"
 
 // MaxPause caps a pause, whatever until says.
-const MaxPause = 5 * time.Minute
+const MaxPause = 15 * time.Minute
 
 // pauseSpec is the content of the pause file.
 type pauseSpec struct {

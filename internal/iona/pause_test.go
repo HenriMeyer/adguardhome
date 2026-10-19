@@ -113,7 +113,7 @@ func TestEngine_pauseEnd(t *testing.T) {
 	assert.Equal(t, clock.now().Add(MaxPause).Unix(), readStatus(t, dir).Pause.Until)
 
 	// Reloading the same pause keeps its end.
-	clock.add(4 * time.Minute)
+	clock.add(MaxPause - time.Minute)
 	reload(t, e)
 	assert.Equal(t, clock.now().Add(time.Minute).Unix(), readStatus(t, dir).Pause.Until)
 	assert.Equal(t, "", blocked(e, "192.168.1.10", "casino.example"))
