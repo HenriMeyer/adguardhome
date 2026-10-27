@@ -318,6 +318,9 @@ type dayAgg struct {
 	// blocks aren't broken down by list.
 	lcount map[string]int
 	ldom   map[string]map[string]int
+
+	// counts is every client's every host; DEBUG, see debugcounts.go.
+	counts map[clientHost]*hostCount
 }
 
 // Write7d updates the per-day files and writes the 7-day history.
@@ -338,6 +341,7 @@ func (h *History) Write7d() (err error) {
 			d = &dayAgg{
 				dcount: map[string]int{}, bdcount: map[string]int{},
 				ccount: map[string]int{}, bccount: map[string]int{},
+				counts: map[clientHost]*hostCount{},
 			}
 			if h.conf.ListName != nil {
 				d.lcount, d.ldom = map[string]int{}, map[string]map[string]int{}
@@ -358,11 +362,16 @@ func (h *History) Write7d() (err error) {
 			}
 		}
 
-		if ck := h.clientKey(r, e); ck != "" {
+		ck := h.clientKey(r, e)
+		if ck != "" {
 			d.ccount[ck]++
 			if e.Blocked {
 				d.bccount[ck]++
 			}
+		}
+
+		if e.Host != "" {
+			addDebugCount(d.counts, ck, e)
 		}
 
 		if l := h.listOf(e); l != "" {
@@ -374,7 +383,7 @@ func (h *History) Write7d() (err error) {
 	}
 
 	for day, d := range days {
-		err = writeDay(dir, day, d)
+		err = writeDay(dir, day, d, r)
 		if err != nil {
 			return err
 		}
@@ -385,7 +394,7 @@ func (h *History) Write7d() (err error) {
 
 // writeDay writes a day's files unless the saved total is higher, which
 // means the log rotated part of that day away (the scripts' high-water mark).
-func writeDay(dir, day string, d *dayAgg) (err error) {
+func writeDay(dir, day string, d *dayAgg, r *registry) (err error) {
 	prev := 0
 	if b, rerr := os.ReadFile(filepath.Join(dir, day+".total")); rerr == nil {
 		prev, _ = strconv.Atoi(strings.TrimSpace(string(b)))
@@ -434,7 +443,12 @@ func writeDay(dir, day string, d *dayAgg) (err error) {
 		content += "\n"
 	}
 
-	return os.WriteFile(filepath.Join(dir, day+".domains"), []byte(content), 0o644)
+	err = os.WriteFile(filepath.Join(dir, day+".domains"), []byte(content), 0o644)
+	if err != nil {
+		return err
+	}
+
+	return writeDebugCounts(dir, day, d.counts, r)
 }
 
 // miniDay is what the merge reads back from a day file.
@@ -619,7 +633,7 @@ func (h *History) writeMerged7d(r *registry) (err error) {
 
 // gcDays removes day files dated before cutoff.
 func gcDays(dir, cutoff string) {
-	for _, ext := range []string{".json", ".total", ".domains"} {
+	for _, ext := range []string{".json", ".total", ".domains", debugCountsExt} {
 		paths, _ := filepath.Glob(filepath.Join(dir, "*"+ext))
 		for _, p := range paths {
 			d := strings.TrimSuffix(filepath.Base(p), ext)

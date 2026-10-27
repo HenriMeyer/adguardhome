@@ -168,6 +168,39 @@ func TestWrite7d_highWaterMark(t *testing.T) {
 	assert.FileExists(t, filepath.Join(out, file7d))
 }
 
+func TestWrite7d_debugCounts(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	h, out := newTest(t, now)
+	require.NoError(t, os.WriteFile(filepath.Join(out, "snap-ip2key.tsv"),
+		[]byte("192.168.1.10\tmac:aa:bb:cc:00:00:10\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(out, "snap-mac2name.tsv"),
+		[]byte("mac:aa:bb:cc:00:00:10\tPhone\n"), 0o644))
+
+	add := func(host, ip string, blocked bool) {
+		h.Add(EntryFromLog(now.Add(-time.Hour), host, ip, "", blocked, 0, 0))
+	}
+
+	add("ga.example", "192.168.1.10", true)
+	add("ga.example", "192.168.1.10", true)
+	add("ga.example", "192.168.1.10", false)
+	add("a.example", "192.168.1.10", false)
+	add("a.example", "192.168.1.99", false)
+	h.Add(EntryFromLog(now.Add(-26*time.Hour), "old.example", "192.168.1.10", "", false, 0, 0))
+	require.NoError(t, h.Write7d())
+
+	b, err := os.ReadFile(filepath.Join(out, "2026-09-26"+debugCountsExt))
+	require.NoError(t, err)
+	assert.Equal(t, "# client\tlabel\thost\ttotal\tblocked\n"+
+		"192.168.1.99\t\ta.example\t1\t0\n"+
+		"mac:aa:bb:cc:00:00:10\tPhone\tga.example\t3\t2\n"+
+		"mac:aa:bb:cc:00:00:10\tPhone\ta.example\t1\t0\n", string(b))
+	assert.FileExists(t, filepath.Join(out, "2026-09-25"+debugCountsExt))
+
+	require.NoError(t, os.WriteFile(filepath.Join(out, "2026-08-01"+debugCountsExt), nil, 0o644))
+	require.NoError(t, h.Write7d())
+	assert.NoFileExists(t, filepath.Join(out, "2026-08-01"+debugCountsExt))
+}
+
 func TestLoad(t *testing.T) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	h, out := newTest(t, now)
