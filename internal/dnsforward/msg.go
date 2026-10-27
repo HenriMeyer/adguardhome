@@ -168,6 +168,13 @@ func (s *Server) makeResponseCustomIP(
 		return s.genARecord(req, bIPv4)
 	case dns.TypeAAAA:
 		return s.genAAAARecord(req, bIPv6)
+	case dns.TypeHTTPS:
+		// iona: genDNSFilterMessage lets HTTPS through since upstream 0.107.50
+		// (safe search on Firefox), so every blocked HTTPS query landed in the
+		// default branch below: an error line in the log and an empty answer
+		// without SOA, which clients may not cache.  Answer like every other
+		// non-address type instead.
+		return s.NewMsgNODATA(req)
 	default:
 		// Generally shouldn't happen, since the types are checked in
 		// genDNSFilterMessage.

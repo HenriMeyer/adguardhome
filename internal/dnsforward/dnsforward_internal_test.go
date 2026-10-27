@@ -1232,6 +1232,19 @@ func TestBlockedCustomIP(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, "::1", a6.AAAA.String())
+
+	// iona: a blocked HTTPS query gets NODATA with a SOA, so clients can cache
+	// it, instead of an empty answer and an error log line.
+	req = createTestMessageWithType("NULL.example.org.", dns.TypeHTTPS)
+	reply, err = dns.Exchange(req, addr.String())
+	require.NoError(t, err)
+
+	assert.Equal(t, dns.RcodeSuccess, reply.Rcode)
+	assert.Empty(t, reply.Answer)
+	require.Len(t, reply.Ns, 1)
+
+	_, ok = reply.Ns[0].(*dns.SOA)
+	assert.True(t, ok)
 }
 
 func TestBlockedByHosts(t *testing.T) {
