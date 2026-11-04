@@ -2,8 +2,10 @@ package history
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +168,27 @@ func TestWrite7d_highWaterMark(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(out, "2026-08-01.json"))
 	assert.FileExists(t, filepath.Join(out, "2026-09-01.json"))
 	assert.FileExists(t, filepath.Join(out, file7d))
+}
+
+func TestWrite24h_persistentRegistry(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 7, 0, 0, time.UTC)
+	h, out := newTest(t, now)
+	require.NoError(t, os.WriteFile(filepath.Join(out, "snap-ip2key.tsv"),
+		[]byte("192.168.1.10\tmac:aa:bb:cc:00:00:10\n"), 0o644))
+	// fd42::10 rotated out of the neighbour table; 192.168.1.10 moved to the
+	// snapshot's MAC since the registry last saw it.
+	require.NoError(t, os.WriteFile(filepath.Join(out, "client-registry.ips.tsv"),
+		[]byte("fd42::10\tmac:aa:bb:cc:00:00:10\t1790000000\n"+
+			"192.168.1.10\tmac:aa:bb:cc:00:00:99\t1790000000\n"), 0o644))
+
+	h.Add(EntryFromLog(now.Add(-time.Minute), "ads.example", "192.168.1.10", "", true, 0, 0))
+	h.Add(EntryFromLog(now.Add(-time.Minute), "ads.example", "fd42::10", "", true, 0, 0))
+	h.Add(EntryFromLog(now.Add(-time.Minute), "ads.example", "fd42::77", "", true, 0, 0))
+	require.NoError(t, h.Write24h())
+
+	clients := readJSON(t, filepath.Join(out, fileBlockedBy))["clients"].(map[string]any)
+	assert.ElementsMatch(t, []string{"mac:aa:bb:cc:00:00:10", "fd42::77"}, slices.Collect(maps.Keys(clients)))
+	assert.EqualValues(t, 2, clients["mac:aa:bb:cc:00:00:10"].([]any)[0].(map[string]any)["n"])
 }
 
 func TestWrite7d_debugCounts(t *testing.T) {

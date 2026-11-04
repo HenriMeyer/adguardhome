@@ -70,8 +70,8 @@ type Config struct {
 	// OutDir receives the history files.
 	OutDir string
 
-	// RegistryDir holds snap-ip2key.tsv and snap-mac2name.tsv, maintained by
-	// router-dns-refresh-registry.
+	// RegistryDir holds snap-ip2key.tsv, snap-mac2name.tsv and
+	// client-registry.ips.tsv, maintained by router-dns-refresh-registry.
 	RegistryDir string
 
 	// QueryLogDir holds querylog.json and querylog.json.1 for [History.Load].
@@ -297,18 +297,26 @@ type registry struct {
 	labels [][2]string
 }
 
-// readRegistry reads the registry snapshot.  Like the scripts, the labels
-// are only used when the key map exists.
+// readRegistry reads the client key map and the labels.  Like the scripts, the
+// labels are only used when the snapshot's key map exists.
+//
+// The snapshot only knows the addresses in the current lease and neighbour
+// tables.  Rotated IPv6 privacy addresses and devices that went offline drop
+// out of it while their queries are still in the window, and would then count
+// as clients of their own under the raw IP.  The persistent registry
+// (client-registry.ips.tsv: ip, key, last seen; 7-day TTL) still maps them, so
+// it is read first and the snapshot overrides it where both know an address.
 func (h *History) readRegistry() (r *registry) {
 	r = &registry{keys: map[string]string{}}
+	persistent, _ := readTSV(filepath.Join(h.conf.RegistryDir, "client-registry.ips.tsv"))
 	keys, _ := readTSV(filepath.Join(h.conf.RegistryDir, "snap-ip2key.tsv"))
-	if len(keys) > 0 {
-		for _, f := range keys {
-			if len(f) >= 2 && f[0] != "" && f[1] != "" {
-				r.keys[f[0]] = f[1]
-			}
+	for _, f := range append(persistent, keys...) {
+		if len(f) >= 2 && f[0] != "" && f[1] != "" {
+			r.keys[f[0]] = f[1]
 		}
+	}
 
+	if len(keys) > 0 {
 		labels, _ := readTSV(filepath.Join(h.conf.RegistryDir, "snap-mac2name.tsv"))
 		for _, f := range labels {
 			if len(f) >= 2 {
